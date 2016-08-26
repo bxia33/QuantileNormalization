@@ -4,13 +4,67 @@ from ref_genome_sizes import *
 from more_itertools import *
 
 def generator(path):
-    with open(path) as file:
+    with open(path, "r") as file:
         for line in file:
             value, index = line.split()
             values = [float(value), int(index)]
             yield values
 
 def load_wig_fixed(path, ref_genome):
+    result = []
+    size = 0
+    ref_genome_sizes = master_genome_sizes[ref_genome]
+    parameters = {
+        "chrom" : None,
+        "start" : None,
+        "step" : None,
+        "span" : None,
+    }
+    prefix = path.find("wig")
+    output_path = path[:prefix]+"indexed.txt"
+    output_file = open(output_path, "w")
+    output_file.close()
+
+    with open(path, "r") as open_file:
+        for line in open_file:
+            if not line.strip():
+                if line[0:9]=='fixedStep':
+                    parameter_values = line.split()
+                    for term in parameter_values[1:]:
+                        key, value = term.split("=")
+                        if key.strip()=='chrom':
+                            parameters[key] = value
+                        elif key.strip() == 'start':
+                            parameters[key] = int(value) + ref_genome_sizes['chrom'][0] - 1
+                        elif key.strip() == 'step':
+                            parameters[key] = int(value)
+                        elif key.strip() == 'span':
+                            parameters[key] = int(value)
+                else:
+                    if parameters["start"] > ref_genome_sizes["chrom"][1]:
+                        print("index larger than current "+ parameters["chrom"])
+                        continue
+                    else:
+                        signal = line.split()[0]
+                        result.append([signal, parameters["start"]])
+                        parameters["start"] += parameters["step"]
+                        size += 1
+                        if parameters["span"] != None and parameters["span"] != parameters["step"]:
+                            print("currently, for fixed wig, span not equal to step is not supported")
+                            return
+                        if size > 1000000:
+                            output_file = open(output_path, "a")
+                            writer = csv.writer(output_file)
+                            writer.writerow(result)
+                            del result[:]
+                            gc.collect()
+                            size = 0
+        if result:
+            output_file = open(output_path, "a")
+            writer = csv.writer(output_file)
+            writer.writerow(result)
+            del result[:]
+            gc.collect()
     pass
 
 def load_wig_vary(path, ref_genome):
@@ -20,18 +74,20 @@ def load_wig(*files, ref_genome):
     file_paths = list(files)
     for path in file_paths:
         if path[-3:] == 'wig':
-            open_file = open(path)
+            open_file = open(path, "r")
         elif path[-6:] == 'wig.gz':
-            open_file = gzip.open(path)
+            open_file = gzip.open(path, "r")
 
         for line in open_file:
             if line[0] == 't':
                 continue
             elif line[0:9]=='fixedStep':
                 load_wig_fixed(path, ref_genome)
+                open_file.close()
                 break
             elif line[0:3]=='var':
                 load_wig_vary(path, ref_genome)
+                open_file.close()
                 break
     return
 
@@ -68,6 +124,7 @@ def calculate_average_signal(sorted_file_paths):
                 writer.writerow(result)
                 del result[:]
                 gc.collect()
+                size = 0
         else:
             break
         if result:
@@ -128,6 +185,7 @@ def output_wig_fixed(replaced_sorted_file_paths, ref_genome, step, span):
                     writer.writerow(result)
                     del result[:]
                     gc.collect()
+                    size = 0
             if result:
                 open_file = open(output_path, "a")
                 writer = csv.writer(open_file)
